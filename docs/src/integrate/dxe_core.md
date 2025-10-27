@@ -491,6 +491,33 @@ enable 32-bit preference for production builds requiring legacy software compati
 
 For detailed memory allocation behavior, see [DXE Core Memory Management](../dxe_core/memory_management.md).
 
+### 9.3 Resource Descriptor HOB Version Support
+
+Patina DXE Core supports two mutually exclusive formats for Resource Descriptor HOBs: V1 (legacy) and V2 (modern,
+with cache attributes). The version supported is selected at compile time using a Cargo feature flag:
+
+- **Default (V2)**: Only V2 Resource Descriptor HOBs are processed. This is the default for modern platforms and
+  enables cache attribute support.
+- **Legacy (V1)**: If the `v1_resource_descriptor_support` feature is enabled, only V1 Resource Descriptor HOBs are
+  processed (for legacy platforms). V2 HOBs are ignored in this mode.
+
+The code paths for V1 and V2 are strictly separated at compile time for performance and maintainability. Shared GCD
+logic is reused for both modes.
+
+**How to enable V1 Resource Descriptor HOB support:**
+
+You can enable V1 Resource Descriptor HOB support by setting it as the default feature in your platform binary crate's `Cargo.toml`
+(e.g., `platform_patina_dxe_core/Cargo.toml`):
+
+```toml
+[features]
+default = ["v1_resource_descriptor_support"]
+v1_resource_descriptor_support = []
+```
+
+This will build and test the V1 code path by default, without needing to specify the feature flag on the command line.
+For production, remove it from the default list to restore V2 as the default.
+
 ## 10. Build Process and Validation
 
 The Patina DXE Core build process uses standard [Cargo](https://doc.rust-lang.org/cargo/) tooling with UEFI-specific

@@ -15,7 +15,7 @@ use patina::pi::hob::HobList;
 use patina::pi::{
     BootMode,
     dxe_services::GcdMemoryType,
-    hob::{self, header},
+    hob::{self, ResourceDescriptorV2, header},
 };
 use r_efi::efi;
 use std::any::Any;
@@ -137,7 +137,7 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
         end_of_hob_list: mem_base
             + core::mem::size_of::<hob::PhaseHandoffInformationTable>() as u64
             + core::mem::size_of::<hob::Cpu>() as u64
-            + (core::mem::size_of::<hob::ResourceDescriptor>() as u64) * 7
+            + (core::mem::size_of::<ResourceDescriptorV2>() as u64) * 7
             + core::mem::size_of::<header::Hob>() as u64,
     };
 
@@ -148,95 +148,124 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
         reserved: Default::default(),
     };
 
-    let resource_descriptor1 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor1 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
+            resource_attribute: hob::TESTED_MEMORY_ATTRIBUTES,
+            physical_start: mem_base + 0xE0000,
+            resource_length: 0x10000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
-        resource_attribute: hob::TESTED_MEMORY_ATTRIBUTES,
-        physical_start: mem_base + 0xE0000,
-        resource_length: 0x10000,
+        attributes: 0u64, // No cache attributes for system memory
     };
 
-    let resource_descriptor2 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor2 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
+            resource_attribute: hob::INITIALIZED_MEMORY_ATTRIBUTES,
+            physical_start: mem_base + 0xF0000,
+            resource_length: 0x10000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
-        resource_attribute: hob::INITIALIZED_MEMORY_ATTRIBUTES,
-        physical_start: mem_base + 0xF0000,
-        resource_length: 0x10000,
+        attributes: 0u64, // No cache attributes for system memory
     };
 
-    let resource_descriptor3 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor3 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_MEMORY_MAPPED_IO,
+            resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT
+                | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED
+                | hob::EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE,
+            physical_start: 0x10000000,
+            resource_length: 0x1000000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_MEMORY_MAPPED_IO,
-        resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED,
-        physical_start: 0x10000000,
-        resource_length: 0x1000000,
+        attributes: efi::MEMORY_UC, // Uncacheable for MMIO
     };
 
-    let resource_descriptor4 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor4 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_FIRMWARE_DEVICE,
+            resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT
+                | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED
+                | hob::EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE,
+            physical_start: 0x11000000,
+            resource_length: 0x1000000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_FIRMWARE_DEVICE,
-        resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED,
-        physical_start: 0x11000000,
-        resource_length: 0x1000000,
+        attributes: efi::MEMORY_UC, // Uncacheable for firmware device (consistent with MMIO)
     };
 
-    let resource_descriptor5 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor5 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_MEMORY_RESERVED,
+            resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT
+                | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED
+                | hob::EFI_RESOURCE_ATTRIBUTE_WRITE_BACK_CACHEABLE,
+            physical_start: 0x12000000,
+            resource_length: 0x1000000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_MEMORY_RESERVED,
-        resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED,
-        physical_start: 0x12000000,
-        resource_length: 0x1000000,
+        attributes: efi::MEMORY_WB, // Write Back for reserved memory
     };
 
-    let resource_descriptor6 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor6 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_IO,
+            resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT
+                | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED
+                | hob::EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE,
+            physical_start: 0x1000,
+            resource_length: 0xF000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_IO,
-        resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT | hob::EFI_RESOURCE_ATTRIBUTE_INITIALIZED,
-        physical_start: 0x1000,
-        resource_length: 0xF000,
+        attributes: efi::MEMORY_UC, // Uncacheable for I/O space
     };
 
-    let resource_descriptor7 = hob::ResourceDescriptor {
-        header: header::Hob {
-            r#type: hob::RESOURCE_DESCRIPTOR,
-            length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-            reserved: 0x00000000,
+    let resource_descriptor7 = ResourceDescriptorV2 {
+        v1: hob::ResourceDescriptor {
+            header: header::Hob {
+                r#type: hob::RESOURCE_DESCRIPTOR2,
+                length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                reserved: 0x00000000,
+            },
+            owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+            resource_type: hob::EFI_RESOURCE_IO_RESERVED,
+            resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT | hob::EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE,
+            physical_start: 0x0000,
+            resource_length: 0x1000,
         },
-        owner: ZERO,
-        resource_type: hob::EFI_RESOURCE_IO_RESERVED,
-        resource_attribute: hob::EFI_RESOURCE_ATTRIBUTE_PRESENT,
-        physical_start: 0x0000,
-        resource_length: 0x1000,
+        attributes: efi::MEMORY_UC, // Uncacheable for reserved I/O space
     };
 
     let mut allocation_hob_template = hob::MemoryAllocation {
@@ -260,7 +289,7 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
             length: core::mem::size_of::<hob::FirmwareVolume>() as u16,
             reserved: 0x00000000,
         },
-        base_address: resource_descriptor4.physical_start,
+        base_address: resource_descriptor4.v1.physical_start,
         length: 0x80000,
     };
 
@@ -278,27 +307,27 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
         core::ptr::copy(&cpu, cursor as *mut hob::Cpu, 1);
         cursor = cursor.offset(cpu.header.length as isize);
 
-        //resource descriptor HOBs - see above comment
-        core::ptr::copy(&resource_descriptor1, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor1.header.length as isize);
+        //resource descriptor HOBs - all V2 to enable proper migration
+        core::ptr::copy(&resource_descriptor1, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor1.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor2, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor2.header.length as isize);
+        core::ptr::copy(&resource_descriptor2, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor2.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor3, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor3.header.length as isize);
+        core::ptr::copy(&resource_descriptor3, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor3.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor4, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor4.header.length as isize);
+        core::ptr::copy(&resource_descriptor4, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor4.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor5, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor5.header.length as isize);
+        core::ptr::copy(&resource_descriptor5, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor5.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor6, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor6.header.length as isize);
+        core::ptr::copy(&resource_descriptor6, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor6.v1.header.length as isize);
 
-        core::ptr::copy(&resource_descriptor7, cursor as *mut hob::ResourceDescriptor, 1);
-        cursor = cursor.offset(resource_descriptor7.header.length as isize);
+        core::ptr::copy(&resource_descriptor7, cursor as *mut ResourceDescriptorV2, 1);
+        cursor = cursor.offset(resource_descriptor7.v1.header.length as isize);
 
         //memory allocation HOBs.
         for (idx, memory_type) in [
@@ -317,7 +346,7 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
         .enumerate()
         {
             allocation_hob_template.alloc_descriptor.memory_base_address =
-                resource_descriptor1.physical_start + idx as u64 * 0x1000;
+                resource_descriptor1.v1.physical_start + idx as u64 * 0x1000;
             allocation_hob_template.alloc_descriptor.memory_type = *memory_type;
 
             core::ptr::copy(&allocation_hob_template, cursor as *mut hob::MemoryAllocation, 1);
@@ -325,7 +354,7 @@ pub(crate) fn build_test_hob_list(mem_size: u64) -> *const c_void {
         }
 
         // memory allocation HOB for MMIO space
-        allocation_hob_template.alloc_descriptor.memory_base_address = resource_descriptor3.physical_start;
+        allocation_hob_template.alloc_descriptor.memory_base_address = resource_descriptor3.v1.physical_start;
         allocation_hob_template.alloc_descriptor.memory_length = 0x2000;
         allocation_hob_template.alloc_descriptor.memory_type = efi::MEMORY_MAPPED_IO;
         core::ptr::copy(&allocation_hob_template, cursor as *mut hob::MemoryAllocation, 1);
@@ -374,7 +403,7 @@ mod tests {
             end_of_hob_list: mem_base
                 + core::mem::size_of::<hob::PhaseHandoffInformationTable>() as u64
                 + core::mem::size_of::<hob::Cpu>() as u64
-                + (core::mem::size_of::<hob::ResourceDescriptor>() as u64) * 7
+                + core::mem::size_of::<ResourceDescriptorV2>() as u64  // Only 1 V2 system memory HOB
                 + core::mem::size_of::<header::Hob>() as u64,
         };
 
@@ -385,17 +414,20 @@ mod tests {
             reserved: Default::default(),
         };
 
-        let resource_descriptor1 = hob::ResourceDescriptor {
-            header: header::Hob {
-                r#type: hob::RESOURCE_DESCRIPTOR,
-                length: core::mem::size_of::<hob::ResourceDescriptor>() as u16,
-                reserved: 0x00000000,
+        let resource_descriptor1 = ResourceDescriptorV2 {
+            v1: hob::ResourceDescriptor {
+                header: header::Hob {
+                    r#type: hob::RESOURCE_DESCRIPTOR2,
+                    length: core::mem::size_of::<ResourceDescriptorV2>() as u16,
+                    reserved: 0x00000000,
+                },
+                owner: efi::Guid::from_fields(0, 0, 0, 0, 0, &[0u8; 6]),
+                resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
+                resource_attribute: hob::TESTED_MEMORY_ATTRIBUTES,
+                physical_start: mem_base + 0xE0000,
+                resource_length: 0x10000,
             },
-            owner: ZERO,
-            resource_type: hob::EFI_RESOURCE_SYSTEM_MEMORY,
-            resource_attribute: hob::TESTED_MEMORY_ATTRIBUTES,
-            physical_start: mem_base + 0xE0000,
-            resource_length: 0x10000,
+            attributes: 0u64, // No cache attributes for system memory (same as V1 behavior)
         };
 
         let mut allocation_hob_template: hob::MemoryAllocationModule = hob::MemoryAllocationModule {
@@ -433,8 +465,8 @@ mod tests {
             cursor = cursor.offset(cpu.header.length as isize);
 
             // Resource descriptor HOB
-            core::ptr::copy(&resource_descriptor1, cursor as *mut hob::ResourceDescriptor, 1);
-            cursor = cursor.offset(resource_descriptor1.header.length as isize);
+            core::ptr::copy(&resource_descriptor1, cursor as *mut ResourceDescriptorV2, 1);
+            cursor = cursor.offset(resource_descriptor1.v1.header.length as isize);
 
             // Memory allocation HOBs.
             for (idx, memory_type) in [
@@ -453,7 +485,7 @@ mod tests {
             .enumerate()
             {
                 allocation_hob_template.alloc_descriptor.memory_base_address =
-                    resource_descriptor1.physical_start + idx as u64 * 0x1000;
+                    resource_descriptor1.v1.physical_start + idx as u64 * 0x1000;
                 allocation_hob_template.alloc_descriptor.memory_type = *memory_type;
                 allocation_hob_template.module_name = guids::DXE_CORE;
 
