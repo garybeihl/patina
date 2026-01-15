@@ -660,6 +660,7 @@ impl<D: SliceKey> SliceKey for Node<D> {
 
 #[cfg(test)]
 #[coverage(off)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
 
@@ -717,7 +718,9 @@ mod tests {
 
         p4.set_parent(Some(p1));
 
+        // SAFETY: Test nodes are created with initialized data via Node::new()
         assert_eq!(unsafe { *Node::sibling(p2).unwrap().data() }, 3);
+        // SAFETY: Test nodes are created with initialized data via Node::new()
         assert_eq!(unsafe { *Node::sibling(p3).unwrap().data() }, 2);
         assert!(Node::sibling(p1).is_none());
     }
@@ -757,6 +760,7 @@ mod tests {
         p2.set_right(Some(p4));
         p4.set_parent(Some(p2));
 
+        // SAFETY: Test nodes are created with initialized data via Node::new()
         assert_eq!(unsafe { *Node::predecessor(p1).unwrap().data() }, 4);
         assert!(Node::predecessor(p4).is_none());
     }
@@ -777,6 +781,7 @@ mod tests {
         p2.set_right(Some(p4));
         p4.set_parent(Some(p2));
 
+        // SAFETY: Test nodes are created with initialized data via Node::new()
         assert_eq!(unsafe { *Node::successor(p1).unwrap().data() }, 3);
         assert!(Node::successor(p4).is_none());
     }
