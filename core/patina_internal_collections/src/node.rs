@@ -199,7 +199,7 @@ where
             )
         };
 
-        assert!(buffer.len() >= self.len());
+        assert!(buffer.len() >= self.capacity());
 
         // When current capacity is 0, we just need to copy the data and build the available list
         if self.capacity() == 0 {
@@ -210,7 +210,7 @@ where
         }
 
         // Copy the data from the old buffer to the new buffer. Update the pointers to the new buffer
-        for i in 0..self.len() {
+        for i in 0..self.capacity() {
             let old = &self.data[i];
 
             buffer[i].data = old.data;
@@ -779,5 +779,80 @@ mod tests {
         assert_eq!(l1.parent_ptr(), node2.as_mut_ptr());
         assert_eq!(node2.right_ptr(), r1.as_mut_ptr());
         assert_eq!(r1.parent_ptr(), node2.as_mut_ptr());
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: buffer.len() >= self.capacity()")]
+    fn test_resize_prevents_capacity_shrink() {
+        // Verify that resize() prevents shrinking capacity
+        const INITIAL_SIZE: usize = 10;
+        let mut initial_memory = [0; INITIAL_SIZE * node_size::<usize>()];
+        let mut storage = Storage::<usize>::with_capacity(&mut initial_memory);
+
+        // Add some nodes
+        storage.add(100).unwrap();
+        storage.add(200).unwrap();
+        storage.add(300).unwrap();
+
+        // Now storage has capacity=10, length=3
+        assert_eq!(storage.capacity(), 10);
+        assert_eq!(storage.len(), 3);
+
+        // Try to resize to smaller capacity (5 < 10)
+        // This should panic because we're shrinking capacity
+        const SMALLER_SIZE: usize = 5;
+        let mut smaller_memory = [0; SMALLER_SIZE * node_size::<usize>()];
+        storage.resize(&mut smaller_memory); // Should panic here
+    }
+
+    #[test]
+    fn test_resize_copies_all_nodes_including_gaps() {
+        // Test that resize copies ALL nodes (capacity), not just len() nodes
+        // Buffer layout: [VALID | VALID | INVALID | VALID | INVALID]
+        const INITIAL_SIZE: usize = 10;
+        let mut initial_memory = [0; INITIAL_SIZE * node_size::<usize>()];
+        let mut storage = Storage::<usize>::with_capacity(&mut initial_memory);
+
+        // Add 5 nodes at indices 0-4
+        storage.add(100).unwrap(); // idx 0
+        storage.add(200).unwrap(); // idx 1
+        storage.add(300).unwrap(); // idx 2
+        storage.add(400).unwrap(); // idx 3
+        storage.add(500).unwrap(); // idx 4
+
+        // Delete nodes at indices 2 and 3 to create gaps
+        let node2_ptr = storage.get_mut(2).unwrap().as_mut_ptr();
+        let node3_ptr = storage.get_mut(3).unwrap().as_mut_ptr();
+        storage.delete(node2_ptr);
+        storage.delete(node3_ptr);
+
+        // Now add nodes that will use higher indices
+        storage.add(600).unwrap(); // Reuses idx 3
+        storage.add(700).unwrap(); // Reuses idx 2
+        storage.add(800).unwrap(); // idx 5
+        storage.add(900).unwrap(); // idx 6
+
+        // Storage now has: capacity=10, len=7
+        // Valid nodes spread across indices with gaps
+        assert_eq!(storage.capacity(), 10);
+        assert_eq!(storage.len(), 7);
+
+        // Resize to larger capacity - should copy ALL nodes including invalid ones
+        const LARGER_SIZE: usize = 20;
+        let mut larger_memory = [0; LARGER_SIZE * node_size::<usize>()];
+        storage.resize(&mut larger_memory);
+
+        // Verify all 7 nodes are still accessible
+        assert_eq!(storage.len(), 7);
+        assert_eq!(storage.capacity(), 20);
+
+        // Verify we can access all nodes
+        assert!(storage.get(0).is_some());
+        assert!(storage.get(1).is_some());
+        assert!(storage.get(2).is_some());
+        assert!(storage.get(3).is_some());
+        assert!(storage.get(4).is_some());
+        assert!(storage.get(5).is_some());
+        assert!(storage.get(6).is_some());
     }
 }
