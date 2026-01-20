@@ -178,16 +178,19 @@ impl<'a, D> Storage<'a, D>
 where
     D: SliceKey + Copy,
 {
-    /// Resizes the storage container to a new slice of memory.
+    /// Expands the storage capacity by moving nodes to a new, larger buffer.
+    ///
+    /// This function cannot shrink the storage capacity - it only allows expansion.
+    /// All nodes (including gaps from deleted nodes) are copied to preserve the tree structure.
     ///
     /// # Panics
     ///
-    /// Panics if the new slice is smaller than the current length of the storage container.
+    /// Panics if the new slice is smaller than the current capacity of the storage container.
     ///
     /// # Time Complexity
     ///
     /// O(n)
-    pub fn resize(&mut self, slice: &'a mut [u8]) {
+    pub fn expand(&mut self, slice: &'a mut [u8]) {
         // SAFETY: This is reinterpreting a byte slice as a Node<D> slice.
         // 1. The alignment is handled by slice casting rules
         // 2. The correct number of Node<D> elements that fit in the byte slice is calculated
@@ -705,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_with_no_free_space() {
+    fn test_expand_with_no_free_space() {
         const CAPACITY: usize = 5;
         let mut memory = [0; CAPACITY * node_size::<usize>()];
         let mut storage = Storage::<usize>::with_capacity(&mut memory);
@@ -717,7 +720,7 @@ mod tests {
 
         // Resize to the exact same capacity (no free space)
         let mut new_memory = [0; CAPACITY * node_size::<usize>()];
-        storage.resize(&mut new_memory);
+        storage.expand(&mut new_memory);
 
         // Verify that available is null indicating no free space
         assert!(storage.available.get().is_null());
@@ -783,8 +786,8 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "assertion failed: buffer.len() >= self.capacity()")]
-    fn test_resize_prevents_capacity_shrink() {
-        // Verify that resize() prevents shrinking capacity
+    fn test_expand_prevents_capacity_shrink() {
+        // Verify that expand() prevents shrinking capacity
         const INITIAL_SIZE: usize = 10;
         let mut initial_memory = [0; INITIAL_SIZE * node_size::<usize>()];
         let mut storage = Storage::<usize>::with_capacity(&mut initial_memory);
@@ -802,12 +805,12 @@ mod tests {
         // This should panic because we're shrinking capacity
         const SMALLER_SIZE: usize = 5;
         let mut smaller_memory = [0; SMALLER_SIZE * node_size::<usize>()];
-        storage.resize(&mut smaller_memory); // Should panic here
+        storage.expand(&mut smaller_memory); // Should panic here
     }
 
     #[test]
-    fn test_resize_copies_all_nodes_including_gaps() {
-        // Test that resize copies ALL nodes (capacity), not just len() nodes
+    fn test_expand_copies_all_nodes_including_gaps() {
+        // Test that expand copies ALL nodes (capacity), not just len() nodes
         // Buffer layout: [VALID | VALID | INVALID | VALID | INVALID]
         const INITIAL_SIZE: usize = 10;
         let mut initial_memory = [0; INITIAL_SIZE * node_size::<usize>()];
@@ -840,7 +843,7 @@ mod tests {
         // Resize to larger capacity - should copy ALL nodes including invalid ones
         const LARGER_SIZE: usize = 20;
         let mut larger_memory = [0; LARGER_SIZE * node_size::<usize>()];
-        storage.resize(&mut larger_memory);
+        storage.expand(&mut larger_memory);
 
         // Verify all 7 nodes are still accessible
         assert_eq!(storage.len(), 7);
