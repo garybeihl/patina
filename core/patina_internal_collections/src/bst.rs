@@ -32,7 +32,7 @@ where
     ///
     /// This is useful for creating a tree at compile time and replacing the memory later. Use
     /// [with_capacity](Self::with_capacity) to create a tree with a given slice of memory immediately. Otherwise use
-    /// [resize](Self::resize) to replace the memory later.
+    /// [expand](Self::expand) to replace the memory later.
     pub const fn new() -> Self {
         Bst { storage: Storage::new(), root: Cell::new(core::ptr::null_mut()) }
     }
