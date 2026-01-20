@@ -718,7 +718,7 @@ mod tests {
             storage.add(i).unwrap();
         }
 
-        // Resize to the exact same capacity (no free space)
+        // Expand to the exact same capacity (no free space)
         let mut new_memory = [0; CAPACITY * node_size::<usize>()];
         storage.expand(&mut new_memory);
 
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(storage.capacity(), 10);
         assert_eq!(storage.len(), 3);
 
-        // Try to resize to smaller capacity (5 < 10)
+        // Try to expand to smaller capacity (5 < 10)
         // This should panic because we're shrinking capacity
         const SMALLER_SIZE: usize = 5;
         let mut smaller_memory = [0; SMALLER_SIZE * node_size::<usize>()];
@@ -840,7 +840,7 @@ mod tests {
         assert_eq!(storage.capacity(), 10);
         assert_eq!(storage.len(), 7);
 
-        // Resize to larger capacity - should copy ALL nodes including invalid ones
+        // Expand to larger capacity - should copy ALL nodes including invalid ones
         const LARGER_SIZE: usize = 20;
         let mut larger_memory = [0; LARGER_SIZE * node_size::<usize>()];
         storage.expand(&mut larger_memory);
