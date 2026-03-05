@@ -14,6 +14,7 @@ use crate::tpl_mutex::TplMutex;
 use patina::{
     boot_services::StandardBootServices,
     component::{IntoComponent, Storage, service::IntoService},
+    log_debug_assert,
     pi::hob::HobList,
     runtime_services::StandardRuntimeServices,
 };
@@ -177,6 +178,13 @@ impl ComponentDispatcher {
         self.storage.set_runtime_services(rs);
     }
 
+    /// Sets the core Image Handle in storage.
+    #[coverage(off)]
+    #[inline(always)]
+    pub(crate) fn set_image_handle(&mut self, handle: efi::Handle) {
+        self.storage.set_image_handle(handle);
+    }
+
     /// Parses the HOB list producing a `Hob\<T\>` struct for each guided HOB found with a registered parser.
     pub(crate) fn insert_hobs(&mut self, hob_list: &HobList<'_>) {
         for hob in hob_list.iter() {
@@ -221,8 +229,7 @@ impl ComponentDispatcher {
                 }
                 Ok(false) => false,
                 Err(err) => {
-                    log::error!("Dispatched: Id = [{name:?}] Status = [Failed] Error = [{err:?}]");
-                    debug_assert!(false);
+                    log_debug_assert!("Dispatched: Id = [{name:?}] Status = [Failed] Error = [{err:?}]");
                     true // Component dispatched, even if it did fail, so remove from self.components to avoid re-dispatch.
                 }
             }

@@ -25,14 +25,13 @@ patina_paging = { workspace = true }
 r-efi = { workspace = true }
 scroll = { workspace = true, features = ["derive"] }
 spin = { workspace = true }
-uefi_corosensei = { workspace = true  }
+corosensei = { workspace = true  }
 uuid = { workspace = true  }
 patina = { workspace = true, features = ["core"] }
 patina_ffs = { workspace = true }
 patina_internal_collections = { workspace = true  }
 patina_internal_cpu = { workspace = true }
 patina_debugger = { workspace = true }
-patina_internal_device_path = { workspace = true }
 patina_internal_depex = { workspace = true}
 patina_performance = { workspace = true }
 
