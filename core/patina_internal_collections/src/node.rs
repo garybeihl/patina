@@ -204,18 +204,32 @@ where
     ///
     /// O(n)
     pub fn expand(&mut self, slice: &'a mut [u8]) {
-        // SAFETY: This is reinterpreting a byte slice as a Node<D> slice.
+        // SAFETY: This is reinterpreting a byte slice as a MaybeUninit<Node<D>> slice.
+        // Using MaybeUninit explicitly represents uninitialized memory and avoids undefined
+        // behavior from creating references to uninitialized Node<D>.
         // 1. The alignment is handled by slice casting rules
         // 2. The correct number of Node<D> elements that fit in the byte slice is calculated
         // 3. The lifetime 'a ensures the byte slice remains valid for the storage's lifetime
-        let buffer = unsafe {
-            slice::from_raw_parts_mut::<'a, Node<D>>(
-                slice as *mut [u8] as *mut Node<D>,
+        // 4. MaybeUninit<T> has the same size and alignment as T
+        let uninit_buffer = unsafe {
+            slice::from_raw_parts_mut::<'a, MaybeUninit<Node<D>>>(
+                slice as *mut [u8] as *mut MaybeUninit<Node<D>>,
                 slice.len() / mem::size_of::<Node<D>>(),
             )
         };
 
-        assert!(buffer.len() >= self.capacity());
+        assert!(uninit_buffer.len() >= self.capacity());
+
+        // Initialize all new nodes with uninitialized data fields.
+        // Nodes at indices 0..self.capacity() will be overwritten with copied data below.
+        for elem in uninit_buffer.iter_mut() {
+            elem.write(Node::new_uninit());
+        }
+
+        // SAFETY: All nodes have been initialized (though their data fields are uninitialized).
+        // We can now safely convert from MaybeUninit<Node<D>> to Node<D>.
+        let buffer =
+            unsafe { slice::from_raw_parts_mut(uninit_buffer.as_mut_ptr() as *mut Node<D>, uninit_buffer.len()) };
 
         // When current capacity is 0, we just need to copy the data and build the available list
         if self.capacity() == 0 {
@@ -226,14 +240,13 @@ where
         }
 
         // Copy the data from the old buffer to the new buffer. Update the pointers to the new buffer
-        for i in 0..self.capacity() {
+        for i in 0..self.len() {
             let old = &self.data[i];
 
             // SAFETY: Nodes at indices 0..self.len() are "in use" and have initialized data.
             // We copy the initialized data from old to new.
             unsafe {
                 let old_data = old.data();
-                // Use ptr::copy to copy the data from old to new
                 buffer[i].data = MaybeUninit::new(*old_data);
             }
             buffer[i].set_color(old.color());
@@ -486,7 +499,7 @@ pub struct Node<D>
 where
     D: SliceKey,
 {
-    pub data: MaybeUninit<D>,
+    pub(crate) data: MaybeUninit<D>,
     color: Cell<bool>,
     parent: Cell<*mut Node<D>>,
     left: Cell<*mut Node<D>>,
@@ -654,7 +667,6 @@ impl<D: SliceKey> SliceKey for Node<D> {
 
 #[cfg(test)]
 #[coverage(off)]
-#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
 
@@ -858,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "assertion failed: buffer.len() >= self.capacity()")]
+    #[should_panic(expected = "assertion failed: uninit_buffer.len() >= self.capacity()")]
     fn test_expand_prevents_capacity_shrink() {
         // Verify that expand() prevents shrinking capacity
         const INITIAL_SIZE: usize = 10;
