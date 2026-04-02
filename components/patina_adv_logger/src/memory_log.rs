@@ -25,16 +25,20 @@ use r_efi::efi;
 use zerocopy_derive::*;
 
 // { 0x4d60cfb5, 0xf481, 0x4a98, {0x9c, 0x81, 0xbf, 0xf8, 0x64, 0x60, 0xc4, 0x3e }}
-pub const ADV_LOGGER_HOB_GUID: efi::Guid =
-    efi::Guid::from_fields(0x4d60cfb5, 0xf481, 0x4a98, 0x9c, 0x81, &[0xbf, 0xf8, 0x64, 0x60, 0xc4, 0x3e]);
+pub const ADV_LOGGER_HOB_GUID: patina::BinaryGuid =
+    patina::BinaryGuid::from_string("4D60CFB5-F481-4A98-9C81-BFF86460C43E");
 
 pub const ADV_LOGGER_INFO_VERSION_V5: u16 = 5;
 pub const ADV_LOGGER_INFO_VERSION_V6: u16 = 6;
 
 // UEFI Debug Levels
+/// Error
 pub const DEBUG_LEVEL_ERROR: u32 = 0x80000000;
+/// Warnings
 pub const DEBUG_LEVEL_WARNING: u32 = 0x00000002;
+/// Informational debug messages
 pub const DEBUG_LEVEL_INFO: u32 = 0x00000040;
+/// Detailed debug messages that may significantly impact boot performance
 pub const DEBUG_LEVEL_VERBOSE: u32 = 0x00400000;
 
 // Phase definitions.

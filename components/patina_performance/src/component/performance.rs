@@ -11,7 +11,6 @@
 
 use crate::{component::protocol::create_performance_measurement_efiapi, config, mm};
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{clone::Clone, convert::AsRef};
 use patina::{
     boot_services::{BootServices, StandardBootServices, event::EventType, tpl::Tpl},
     component::{
@@ -21,7 +20,7 @@ use patina::{
         service::{Service, perf_timer::ArchTimerFunctionality},
     },
     error::EfiError,
-    guids::{EVENT_GROUP_END_OF_DXE, PERFORMANCE_PROTOCOL},
+    guids::PERFORMANCE_PROTOCOL,
     performance::{
         globals::{get_static_state, set_load_image_count, set_perf_measurement_mask, set_static_state},
         measurement::{PerformanceProperty, event_callback},
@@ -41,8 +40,10 @@ use r_efi::system::EVENT_GROUP_READY_TO_BOOT;
 
 pub use mu_rust_helpers::function;
 
+use patina::guids::EVENT_GROUP_END_OF_DXE;
+
 /// Context parameter for the Ready-to-Boot event callback that fetches MM performance records.
-type MmPerformanceEventContext<BB, B, F> = Box<(BB, &'static TplMutex<F, B>, Service<dyn MmCommunication>)>;
+type MmPerformanceEventContext<B, F> = Box<(B, &'static TplMutex<F, B>, Service<dyn MmCommunication>)>;
 
 /// Performance Component.
 pub struct Performance;
@@ -83,29 +84,27 @@ impl Performance {
     }
 
     /// Entry point that have generic parameter.
-    fn _entry_point<BB, B, RR, R, P, F>(
+    fn _entry_point<B, R, P, F>(
         self,
-        boot_services: BB,
-        runtime_services: RR,
+        boot_services: B,
+        runtime_services: R,
         records_buffers_hobs: Option<P>,
         mm_comm_service: Option<Service<dyn MmCommunication>>,
         fbpt: &'static TplMutex<F, B>,
         timer: Service<dyn ArchTimerFunctionality>,
     ) -> Result<(), EfiError>
     where
-        BB: AsRef<B> + Clone + 'static,
-        B: BootServices + 'static,
-        RR: AsRef<R> + Clone + 'static,
-        R: RuntimeServices + 'static,
+        B: BootServices + Clone + 'static,
+        R: RuntimeServices + Clone + 'static,
         P: HobPerformanceDataExtractor,
         F: FirmwareBasicBootPerfTable,
     {
         // Register EndOfDxe event to allocate the boot performance table and report the table address through status code.
-        boot_services.as_ref().create_event_ex(
+        boot_services.create_event_ex(
             EventType::NOTIFY_SIGNAL,
             Tpl::CALLBACK,
             Some(event_callback::report_fbpt_record_buffer),
-            Box::new((BB::clone(&boot_services), RR::clone(&runtime_services), fbpt)),
+            Box::new((boot_services.clone(), runtime_services.clone(), fbpt)),
             &EVENT_GROUP_END_OF_DXE,
         )?;
 
@@ -132,7 +131,7 @@ impl Performance {
         }
 
         // Install the protocol interfaces for DXE performance.
-        boot_services.as_ref().install_protocol_interface(
+        boot_services.install_protocol_interface(
             None,
             Box::new(EdkiiPerformanceMeasurement {
                 create_performance_measurement: create_performance_measurement_efiapi,
@@ -144,11 +143,11 @@ impl Performance {
         if let Some(mm_comm_service) = mm_comm_service {
             // TODO: Replace direct usage of the boot services event services with a Patina service
             //       when available.
-            boot_services.as_ref().create_event_ex(
+            boot_services.create_event_ex(
                 EventType::NOTIFY_SIGNAL,
                 Tpl::CALLBACK,
-                Some(fetch_and_add_mm_performance_records::<BB, B, F>),
-                Box::new((BB::clone(&boot_services), fbpt, mm_comm_service)),
+                Some(fetch_and_add_mm_performance_records::<B, F>),
+                Box::new((boot_services.clone(), fbpt, mm_comm_service)),
                 &EVENT_GROUP_READY_TO_BOOT,
             )?;
         } else {
@@ -162,7 +161,7 @@ impl Performance {
         // Install configuration table for performance property.
         // SAFETY: `install_configuration_table` requires that the data match the GUID; PERFORMANCE_PROTOCOL matches `PerformanceProperty`.
         unsafe {
-            boot_services.as_ref().install_configuration_table(
+            boot_services.install_configuration_table(
                 &PERFORMANCE_PROTOCOL,
                 Box::new(PerformanceProperty::new(
                     timer.perf_frequency(),
@@ -210,7 +209,7 @@ fn fetch_mm_record_size(comm_service: &Service<dyn MmCommunication>) -> Result<u
         .map_err(|_| MmPerformanceError::RecordError("Failed to write GetRecordSize request".into()))?;
 
     let size_resp_bytes = comm_service
-        .communicate(1, &size_req_buf, patina::Guid::Owned(mm::EFI_FIRMWARE_PERFORMANCE_GUID))
+        .communicate(1, &size_req_buf, mm::EFI_FIRMWARE_PERFORMANCE_GUID.as_guid())
         .map_err(MmPerformanceError::Communication)?;
 
     let (size_resp, _) = mm::GetRecordSize::read_from(&size_resp_bytes).map_err(|_| MmPerformanceError::ParseError)?;
@@ -239,7 +238,7 @@ fn fetch_mm_record_chunk(
         .map_err(|_| MmPerformanceError::RecordError("Failed to write GetRecordDataByOffset request".into()))?;
 
     let data_resp_bytes = comm_service
-        .communicate(1, &data_req_buf, patina::Guid::Owned(mm::EFI_FIRMWARE_PERFORMANCE_GUID))
+        .communicate(1, &data_req_buf, mm::EFI_FIRMWARE_PERFORMANCE_GUID.as_guid())
         .map_err(MmPerformanceError::Communication)?;
 
     let (data_resp, _) =
@@ -408,16 +407,15 @@ where
 }
 
 /// Adds MM performance records to the FBPT.
-pub extern "efiapi" fn fetch_and_add_mm_performance_records<BB, B, F>(
+pub extern "efiapi" fn fetch_and_add_mm_performance_records<B, F>(
     event: r_efi::efi::Event,
-    ctx: MmPerformanceEventContext<BB, B, F>,
+    ctx: MmPerformanceEventContext<B, F>,
 ) where
-    BB: AsRef<B> + Clone,
-    B: BootServices + 'static,
+    B: BootServices + Clone + 'static,
     F: FirmwareBasicBootPerfTable,
 {
     let (boot_services, fbpt, comm_service) = *ctx;
-    let _ = boot_services.as_ref().close_event(event);
+    let _ = boot_services.close_event(event);
 
     if let Err(e) = process_mm_performance_records(&comm_service, fbpt) {
         log::error!("Performance: {}", e);
@@ -427,7 +425,6 @@ pub extern "efiapi" fn fetch_and_add_mm_performance_records<BB, B, F>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::rc::Rc;
     use core::assert_eq;
     use r_efi::efi;
 
@@ -524,7 +521,10 @@ mod tests {
             .once()
             .withf_st(|handle, _protocol_interface| {
                 assert_eq!(&None, handle);
-                assert_eq!(EDKII_PERFORMANCE_MEASUREMENT_PROTOCOL_GUID, EdkiiPerformanceMeasurement::PROTOCOL_GUID);
+                assert_eq!(
+                    EDKII_PERFORMANCE_MEASUREMENT_PROTOCOL_GUID.into_inner(),
+                    EdkiiPerformanceMeasurement::PROTOCOL_GUID
+                );
                 true
             })
             .returning(|_, protocol_interface| Ok((TEST_EFI_HANDLE, protocol_interface.metadata())));
@@ -532,8 +532,8 @@ mod tests {
         // Test that an event to report the fbpt at the end of dxe is created.
         boot_services
             .expect_create_event_ex::<Box<(
-                Rc<MockBootServices>,
-                Rc<MockRuntimeServices>,
+                MockBootServices,
+                MockRuntimeServices,
                 &TplMutex<MockFirmwareBasicBootPerfTable, MockBootServices>,
             )>>()
             .once()
@@ -542,9 +542,7 @@ mod tests {
                 assert_eq!(&Tpl::CALLBACK, notify_tpl);
                 assert_eq!(
                     event_callback::report_fbpt_record_buffer::<
-                        Rc<_>,
                         MockBootServices,
-                        Rc<_>,
                         MockRuntimeServices,
                         MockFirmwareBasicBootPerfTable,
                     > as *const () as usize,
@@ -566,17 +564,15 @@ mod tests {
         let mut fbpt = MockFirmwareBasicBootPerfTable::new();
         fbpt.expect_set_perf_records().once().return_const(());
 
-        let boot_services_rc = Rc::new(boot_services);
-
-        // TplMutex owns its BootServices instance
-        let fbpt = TplMutex::new((*boot_services_rc).clone(), Tpl::NOTIFY, fbpt);
+        // TplMutex owns its own BootServices instance (clone creates a new mock with default TPL expectations)
+        let fbpt = TplMutex::new(boot_services.clone(), Tpl::NOTIFY, fbpt);
 
         // Leak the fbpt to create a 'static reference for testing.
         let fbpt = Box::leak(Box::new(fbpt));
 
         let _ = Performance._entry_point(
-            boot_services_rc,
-            Rc::new(runtime_services),
+            boot_services,
+            runtime_services,
             Some(hob_perf_data_extractor),
             None,
             fbpt,
@@ -605,23 +601,19 @@ mod tests {
         let mut entry_point_mock = MockBootServices::new();
         entry_point_mock
             .expect_create_event_ex::<Box<(
-                Rc<MockBootServices>,
-                Rc<MockRuntimeServices>,
+                MockBootServices,
+                MockRuntimeServices,
                 &TplMutex<MockFirmwareBasicBootPerfTable, MockBootServices>,
             )>>()
             .once()
             .return_const_st(Ok(TEST_EVENT_HANDLE));
         entry_point_mock
-            .expect_create_event_ex::<MmPerformanceEventContext<
-                Rc<MockBootServices>,
-                MockBootServices,
-                MockFirmwareBasicBootPerfTable,
-            >>()
+            .expect_create_event_ex::<MmPerformanceEventContext<MockBootServices, MockFirmwareBasicBootPerfTable>>()
             .once()
             .withf_st(|_, _, f, _, group| {
                 (f.unwrap() as usize)
-                    == fetch_and_add_mm_performance_records::<Rc<_>, MockBootServices, MockFirmwareBasicBootPerfTable>
-                        as * const () as usize
+                    == fetch_and_add_mm_performance_records::<MockBootServices, MockFirmwareBasicBootPerfTable>
+                        as *const () as usize
                     && group == &EVENT_GROUP_READY_TO_BOOT
             })
             .return_const_st(Ok(TEST_EVENT_HANDLE_2));
@@ -643,8 +635,8 @@ mod tests {
         let mm_service: Service<dyn MmCommunication> = Service::mock(Box::new(FakeComm));
         let timer: Service<dyn ArchTimerFunctionality> = Service::mock(Box::new(MockTimer {}));
         let _ = Performance._entry_point(
-            Rc::new(entry_point_mock),
-            Rc::new(runtime_services),
+            entry_point_mock,
+            runtime_services,
             Option::<MockHobPerformanceDataExtractor>::None,
             Some(mm_service),
             fbpt_ref,
@@ -690,9 +682,9 @@ mod tests {
         let fbpt_ref: &'static TplMutex<_, _> = Box::leak(Box::new(fbpt_mutex));
 
         let mm_service: Service<dyn MmCommunication> = Service::mock(Box::new(ZeroSizeComm));
-        fetch_and_add_mm_performance_records::<Rc<MockBootServices>, MockBootServices, MockFirmwareBasicBootPerfTable>(
+        fetch_and_add_mm_performance_records::<MockBootServices, MockFirmwareBasicBootPerfTable>(
             TEST_EVENT_HANDLE,
-            Box::new((Rc::new(callback_mock), fbpt_ref, mm_service)),
+            Box::new((callback_mock, fbpt_ref, mm_service)),
         );
     }
 
@@ -754,9 +746,9 @@ mod tests {
         let fbpt_ref: &'static TplMutex<_, _> = Box::leak(Box::new(fbpt_mutex));
 
         let mm_service: Service<dyn MmCommunication> = Service::mock(Box::new(OneRecordComm::new()));
-        fetch_and_add_mm_performance_records::<Rc<MockBootServices>, MockBootServices, MockFirmwareBasicBootPerfTable>(
+        fetch_and_add_mm_performance_records::<MockBootServices, MockFirmwareBasicBootPerfTable>(
             TEST_EVENT_HANDLE,
-            Box::new((Rc::new(callback_mock), fbpt_ref, mm_service)),
+            Box::new((callback_mock, fbpt_ref, mm_service)),
         );
     }
 
@@ -837,9 +829,9 @@ mod tests {
 
         let mm_service: Service<dyn MmCommunication> =
             Service::mock(Box::new(MultiChunks { buf: all_records, fetches: Cell::new(0) }));
-        fetch_and_add_mm_performance_records::<Rc<MockBootServices>, MockBootServices, MockFirmwareBasicBootPerfTable>(
+        fetch_and_add_mm_performance_records::<MockBootServices, MockFirmwareBasicBootPerfTable>(
             TEST_EVENT_HANDLE,
-            Box::new((Rc::new(callback_mock), fbpt_ref, mm_service)),
+            Box::new((callback_mock, fbpt_ref, mm_service)),
         );
     }
 

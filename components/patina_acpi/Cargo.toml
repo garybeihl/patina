@@ -1,6 +1,5 @@
 [package]
 name = "patina_acpi"
-resolver = "2"
 version.workspace = true
 repository.workspace = true
 license.workspace = true
@@ -21,6 +20,7 @@ zerocopy = { workspace = true }
 zerocopy-derive = { workspace = true }
 
 patina = { workspace = true, features = ["alloc"] }
+patina_test = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }

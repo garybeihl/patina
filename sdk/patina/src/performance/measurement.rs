@@ -6,12 +6,9 @@
 //!
 //! SPDX-License-Identifier: Apache-2.0
 //!
-extern crate alloc;
-
 use alloc::boxed::Box;
 use core::{
     clone::Clone,
-    convert::AsRef,
     ffi::c_void,
     mem,
     ops::BitOr,
@@ -55,29 +52,25 @@ pub mod event_callback {
     use super::*;
 
     /// Reports the Firmware Basic Boot Performance Table (FBPT) record buffer.
-    pub extern "efiapi" fn report_fbpt_record_buffer<BB, B, RR, R, F>(
-        event: efi::Event,
-        ctx: Box<(BB, RR, &TplMutex<F, B>)>,
-    ) where
-        BB: AsRef<B> + Clone,
-        B: BootServices + 'static,
-        RR: AsRef<R> + Clone + 'static,
-        R: RuntimeServices + 'static,
+    pub extern "efiapi" fn report_fbpt_record_buffer<B, R, F>(event: efi::Event, ctx: Box<(B, R, &TplMutex<F, B>)>)
+    where
+        B: BootServices + Clone + 'static,
+        R: RuntimeServices + Clone + 'static,
         F: FirmwareBasicBootPerfTable,
     {
         let (boot_services, runtime_services, fbpt) = *ctx;
-        let _ = boot_services.as_ref().close_event(event);
+        let _ = boot_services.close_event(event);
 
-        let Ok(fbpt_address) = fbpt.lock().report_table(
-            performance::table::find_previous_table_address(runtime_services.as_ref()),
-            boot_services.as_ref(),
-        ) else {
+        let Ok(fbpt_address) = fbpt
+            .lock()
+            .report_table(performance::table::find_previous_table_address(&runtime_services), &boot_services)
+        else {
             log::error!("Performance: Fail to report FBPT.");
             return;
         };
 
         // SAFETY: `p` is the only mutable reference to the `StatusCodeRuntimeProtocol` in this scope.
-        let Ok(p) = (unsafe { boot_services.as_ref().locate_protocol::<StatusCodeRuntimeProtocol>(None) }) else {
+        let Ok(p) = (unsafe { boot_services.locate_protocol::<StatusCodeRuntimeProtocol>(None) }) else {
             log::error!("Performance: Fail to find status code protocol.");
             return;
         };
@@ -87,7 +80,7 @@ pub mod event_callback {
             EFI_SOFTWARE_DXE_BS_DRIVER,
             0,
             &mu_rust_helpers::guid::CALLER_ID,
-            efi::Guid::clone(&EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE),
+            efi::Guid::clone(&*EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE),
             fbpt_address,
         );
         if status.is_err() {
@@ -97,7 +90,7 @@ pub mod event_callback {
         // SAFETY: This operation is valid because the expected configuration type of a entry with guid `EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE`
         // is a usize and the memory address is a valid and point to an FBPT.
         let status = unsafe {
-            boot_services.as_ref().install_configuration_table_unchecked(
+            boot_services.install_configuration_table_unchecked(
                 &EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE,
                 fbpt_address as *mut c_void,
             )
@@ -318,7 +311,14 @@ where
                 return Err(EfiError::InvalidParameter.into());
             };
             let module_guid = caller_identifier.as_guid().ok_or(EfiError::InvalidParameter)?;
-            let record = DualGuidStringEventRecord::new(perf_id, 0, timestamp, *module_guid, *guid, function_string);
+            let record = DualGuidStringEventRecord::new(
+                perf_id,
+                0,
+                timestamp,
+                (*module_guid).into(),
+                (*guid).into(),
+                function_string,
+            );
             fbpt.lock().add_record(record)?;
         }
 
@@ -331,7 +331,7 @@ where
         | KnownPerfId::PerfEvent => {
             let module_guid = caller_identifier.as_guid().ok_or(EfiError::InvalidParameter)?;
             let string = string.unwrap_or("unknown name");
-            let record = DynamicStringEventRecord::new(perf_id, 0, timestamp, *module_guid, string);
+            let record = DynamicStringEventRecord::new(perf_id, 0, timestamp, (*module_guid).into(), string);
             fbpt.lock().add_record(record)?;
         }
     }
@@ -428,8 +428,8 @@ impl PerformanceProperty {
 fn get_module_guid_from_handle(
     boot_services: &impl BootServices,
     handle: efi::Handle,
-) -> Result<efi::Guid, efi::Status> {
-    let mut guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
+) -> Result<crate::BinaryGuid, efi::Status> {
+    let mut guid = crate::guids::ZERO;
 
     let loaded_image_protocol = 'find_loaded_image_protocol: {
         if let Ok(loaded_image_protocol) =
@@ -478,7 +478,7 @@ fn get_module_guid_from_handle(
             unsafe {
                 let guid_ptr = (loaded_image.file_path as *const u8)
                     .add(mem::size_of::<efi::protocols::device_path::Protocol>())
-                    as *const efi::Guid;
+                    as *const crate::BinaryGuid;
                 guid = ptr::read(guid_ptr);
             }
         };
@@ -494,7 +494,6 @@ mod tests {
 
     use crate::{self as patina, device_path::fv_types::MediaFwVolDevicePath};
 
-    use alloc::rc::Rc;
     use core::{
         mem::MaybeUninit,
         ptr,
@@ -513,6 +512,8 @@ mod tests {
         },
         runtime_services::MockRuntimeServices,
     };
+
+    use crate::guids::EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE;
 
     #[derive(IntoService)]
     #[service(dyn ArchTimerFunctionality)]
@@ -554,7 +555,7 @@ mod tests {
         boot_services
             .expect_install_configuration_table_unchecked()
             .once()
-            .with(predicate::eq(&EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE), predicate::always())
+            .with(predicate::eq(&*EDKII_FPDT_EXTENDED_FIRMWARE_PERFORMANCE), predicate::always())
             .return_const(Ok(()));
 
         boot_services
@@ -578,7 +579,7 @@ mod tests {
 
         event_callback::report_fbpt_record_buffer(
             1_usize as efi::Event,
-            Box::new((Rc::new(boot_services), Rc::new(runtime_services), fbpt)),
+            Box::new((boot_services, runtime_services, fbpt)),
         );
 
         assert!(REPORT_STATUS_CODE_CALLED.load(Ordering::Relaxed));

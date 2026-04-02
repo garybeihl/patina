@@ -10,8 +10,6 @@
 #[cfg(feature = "global_allocator")]
 pub mod global_allocator;
 
-extern crate alloc;
-
 pub mod allocation;
 pub mod boxed;
 pub mod c_ptr;
@@ -1674,6 +1672,7 @@ impl BootServices for StandardBootServices {
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
+    use crate::BinaryGuid;
     use c_ptr::CPtr;
     use efi::{Boolean, Char16, OpenProtocolInformationEntry, protocols::device_path};
 
@@ -1708,8 +1707,8 @@ mod tests {
     // Safety: TestProtocol provides a test protocol interface with a unique GUID for unit tests.
     // The GUID constant meets the requirements of the ProtocolInterface trait.
     unsafe impl ProtocolInterface for TestProtocol {
-        const PROTOCOL_GUID: efi::Guid =
-            efi::Guid::from_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        const PROTOCOL_GUID: BinaryGuid =
+            BinaryGuid::from_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     }
 
     #[derive(Debug)]
@@ -1718,8 +1717,8 @@ mod tests {
     // Safety: TestProtocolEmpty provides a test protocol interface with a unique GUID for unit tests.
     // The GUID constant meets the requirements of the ProtocolInterface trait. Zero-sized type is valid.
     unsafe impl ProtocolInterface for TestProtocolEmpty {
-        const PROTOCOL_GUID: efi::Guid =
-            efi::Guid::from_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        const PROTOCOL_GUID: BinaryGuid =
+            BinaryGuid::from_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     }
 
     extern "efiapi" fn efi_allocate_pool_use_box(
@@ -2964,9 +2963,9 @@ mod tests {
             assert_ne!(ptr::null_mut(), protocol_buffer);
             assert_ne!(ptr::null_mut(), protocol_buffer_count);
 
-            static PROTOCOL_GUID: efi::Guid = TestProtocol::PROTOCOL_GUID;
+            static PROTOCOL_GUID: BinaryGuid = TestProtocol::PROTOCOL_GUID;
             #[allow(unused_allocation)]
-            let buff = Box::new(ptr::addr_of!(PROTOCOL_GUID) as *mut efi::Guid).into_mut_ptr();
+            let buff = Box::new(PROTOCOL_GUID.as_efi_guid() as *const efi::Guid as *mut efi::Guid).into_mut_ptr();
 
             // SAFETY: Test mock - writing protocol GUID buffer pointer and count to output parameters.
             unsafe {

@@ -11,10 +11,12 @@ description = "A pure rust implementation of the UEFI DXE Core."
 [package.metadata.docs.rs]
 features = ["doc"]
 
+[lints]
+workspace = true
+
 [dependencies]
 bitfield-struct = { workspace = true }
 cfg-if = { workspace = true }
-compile-time = { workspace = true }
 crc32fast = { workspace = true }
 goblin = { workspace = true, features = ["pe32", "pe64", "te"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
@@ -34,6 +36,7 @@ patina_internal_cpu = { workspace = true }
 patina_debugger = { workspace = true, features = ["alloc"] }
 patina_internal_depex = { workspace = true}
 patina_performance = { workspace = true }
+patina_test = { workspace = true }
 
 [dev-dependencies]
 # To avoid circular dependencies, cargo-release skips dev dependencies when evaluating the release order for

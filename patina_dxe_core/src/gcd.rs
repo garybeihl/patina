@@ -14,6 +14,7 @@ pub use spin_locked_gcd::DescriptorFilter;
 
 use goblin::pe::section_table;
 
+use alloc::boxed::Box;
 use core::{cell::Cell, ffi::c_void, ops::Range};
 use patina::{
     base::{align_down, align_up},
@@ -23,7 +24,7 @@ use patina::{
         hob::{self, Hob, HobList, PhaseHandoffInformationTable},
     },
 };
-use patina_internal_cpu::paging::create_cpu_paging;
+use patina_internal_cpu::paging::{PatinaPageTable, create_cpu_paging};
 use r_efi::efi;
 
 #[cfg(feature = "compatibility_mode_allowed")]
@@ -427,6 +428,7 @@ pub fn init_gcd(physical_hob_list: *const c_void) {
     let mut free_memory_attributes: u64 = 0;
     let mut free_memory_capabilities: u64 = 0;
 
+    // SAFETY: physical_hob_list is provided by the platform and must point to a valid HOB list.
     let hob_list = Hob::Handoff(unsafe {
         (physical_hob_list as *const PhaseHandoffInformationTable)
             .as_ref::<'static>()
@@ -515,7 +517,8 @@ pub fn init_gcd(physical_hob_list: *const c_void) {
 /// in the SpinLockedGcd struct, which is covered by unit tests.
 pub fn init_paging(hob_list: &HobList) {
     let page_allocator = PagingAllocator::new(&GCD);
-    let page_table = create_cpu_paging(page_allocator).expect("Failed to create CPU page table");
+    let page_table: Box<dyn PatinaPageTable> =
+        Box::new(create_cpu_paging(page_allocator).expect("Failed to create CPU page table"));
     GCD.init_paging_with(hob_list, page_table);
 }
 
@@ -632,6 +635,7 @@ pub fn add_hob_resource_descriptors_to_gcd(hob_list: &HobList) {
                     .take_while(|r| r.is_some())
                     .flatten()
             {
+                // SAFETY: GCD is initialized and split_range is derived from valid HOB ranges.
                 unsafe {
                     GCD.add_memory_space(
                         gcd_mem_type,
@@ -1019,8 +1023,10 @@ mod tests {
             GCD.init(48, 16);
 
             // Add memory and MMIO regions
+            // SAFETY: get_memory returns a test-owned buffer sized for the requested block count.
             let mem = unsafe { crate::test_support::get_memory(spin_locked_gcd::MEMORY_BLOCK_SLICE_SIZE * 10) };
             let address = align_up(mem.as_ptr() as usize, 0x1000).unwrap();
+            // SAFETY: address/length come from the test buffer and are valid for initializing GCD memory blocks.
             unsafe {
                 GCD.init_memory_blocks(
                     patina::pi::dxe_services::GcdMemoryType::SystemMemory,

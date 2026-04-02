@@ -47,7 +47,9 @@ pub mod driver_binding;
 pub mod efi_types;
 pub mod error;
 pub mod guids;
+pub mod hash;
 pub mod log;
+pub mod management_mode;
 #[cfg(any(test, feature = "alloc"))]
 pub mod performance;
 pub mod pi;
@@ -55,7 +57,6 @@ pub mod pi;
 pub mod runtime_services;
 pub mod serial;
 #[cfg(any(test, feature = "alloc"))]
-pub mod test;
-#[cfg(any(test, feature = "alloc"))]
 pub mod tpl_mutex;
+#[cfg(any(test, feature = "alloc"))]
 pub mod uefi_protocol;

@@ -11,16 +11,18 @@
 
 use crate::GCD;
 use alloc::vec::Vec;
-use patina::{test::patina_test, u_assert};
+use patina_test::{patina_test, u_assert};
 // used in the macro, but not directly referenced; causes a warning if patina tests not enabled.
+#[allow(unused)]
+use patina::BinaryGuid;
 #[allow(unused)]
 use r_efi::efi;
 
 // Verify that all adjacent free memory descriptors in the GCD are merged together
 #[patina_test]
-#[on(event = efi::EVENT_GROUP_READY_TO_BOOT)]
-#[on(event = efi::EVENT_GROUP_EXIT_BOOT_SERVICES)]
-fn gcd_free_memory_merged_test() -> patina::test::Result {
+#[on(event = BinaryGuid(efi::EVENT_GROUP_READY_TO_BOOT))]
+#[on(event = BinaryGuid(efi::EVENT_GROUP_EXIT_BOOT_SERVICES))]
+fn gcd_free_memory_merged_test() -> patina_test::error::Result {
     let mut last_desc: Option<patina::pi::dxe_services::MemorySpaceDescriptor> = None;
     let mut descs = Vec::with_capacity(GCD.memory_descriptor_count() * 2);
     GCD.get_memory_descriptors(&mut descs, crate::gcd::DescriptorFilter::Free).map_err(|_| "Can't get descriptors")?;

@@ -18,52 +18,13 @@
 //!
 //! SPDX-License-Identifier: Apache-2.0
 //!
-extern crate alloc;
 use alloc::vec::Vec;
 use core::{fmt, pin::Pin, ptr::NonNull};
 
-use patina::{Guid, base::UEFI_PAGE_MASK};
-use r_efi::efi;
-use zerocopy_derive::*;
-
-/// MM Communication Buffer Status
-///
-/// Shared structure between DXE and MM environments to communicate the status
-/// of MM communication operations. This structure is written by DXE before
-/// triggering an MMI and read/written by MM during MMI processing.
-///
-/// This is a structure currently used in some MM Supervisor MM implementations.
-#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, Immutable, KnownLayout)]
-#[repr(C, packed)]
-pub struct MmCommBufferStatus {
-    /// Whether the data in the fixed MM communication buffer is valid when entering from non-MM to MM.
-    /// Must be set to TRUE before triggering MMI, will be set to FALSE by MM after processing.
-    pub is_comm_buffer_valid: u8,
-
-    /// The channel used to communicate with MM.
-    /// FALSE = user buffer, TRUE = supervisor buffer
-    pub talk_to_supervisor: u8,
-
-    /// The return status when returning from MM to non-MM.
-    pub return_status: u64,
-
-    /// The size in bytes of the output buffer when returning from MM to non-MM.
-    pub return_buffer_size: u64,
-}
-
-impl Default for MmCommBufferStatus {
-    #[coverage(off)]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MmCommBufferStatus {
-    /// Create a new mailbox status with all fields zeroed
-    pub const fn new() -> Self {
-        Self { is_comm_buffer_valid: 0, talk_to_supervisor: 0, return_status: 0, return_buffer_size: 0 }
-    }
-}
+use patina::{
+    BinaryGuid, Guid, base::UEFI_PAGE_MASK, management_mode::MmCommBufferStatus,
+    pi::protocols::communication::EfiMmCommunicateHeader,
+};
 
 /// Management Mode (MM) Configuration
 ///
@@ -120,70 +81,6 @@ impl fmt::Display for MmCommunicationConfiguration {
     }
 }
 
-/// UEFI MM Communicate Header
-///
-/// A standard header that must be present at the beginning of any MM communication buffer.
-///
-/// ## Notes
-///
-/// - This only supports V1 and V2 of the MM Communicate header format.
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct EfiMmCommunicateHeader {
-    /// Allows for disambiguation of the message format.
-    /// Used to identify the registered MM handlers that should be given the message.
-    header_guid: efi::Guid,
-    /// The size of Data (in bytes) and does not include the size of the header.
-    message_length: usize,
-}
-
-impl EfiMmCommunicateHeader {
-    /// Create a new communicate header with the specified GUID and message length.
-    pub fn new(header_guid: Guid, message_length: usize) -> Self {
-        Self { header_guid: header_guid.to_efi_guid(), message_length }
-    }
-
-    /// Returns the communicate header as a slice of bytes using safe conversion.
-    ///
-    /// Useful if byte-level access to the header structure is needed.
-    pub fn as_bytes(&self) -> &[u8] {
-        // SAFETY: EfiMmCommunicateHeader is repr(C) with well-defined layout and size
-        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, Self::size()) }
-    }
-
-    /// Returns the size of the header in bytes.
-    pub const fn size() -> usize {
-        core::mem::size_of::<Self>()
-    }
-
-    /// Get the header GUID from the communication buffer.
-    ///
-    /// Returns `Some(guid)` if the buffer has been properly initialized with a GUID,
-    /// or `None` if the buffer is not initialized.
-    ///
-    /// # Returns
-    ///
-    /// The GUID from the communication header if available.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the communication buffer header cannot be read.
-    pub fn header_guid(&self) -> Guid<'_> {
-        Guid::from_ref(&self.header_guid)
-    }
-
-    /// Returns the message length from this communicate header.
-    ///
-    /// The length represents the size of the message data that follows the header.
-    ///
-    /// # Returns
-    ///
-    /// The length in bytes of the message data (excluding the header size).
-    pub const fn message_length(&self) -> usize {
-        self.message_length
-    }
-}
-
 /// MM Communicator Service Status Codes
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CommunicateBufferStatus {
@@ -213,7 +110,7 @@ pub struct CommunicateBuffer {
     /// Length of the total buffer in bytes.
     length: usize,
     /// Handler GUID tracked independently to check against comm buffer contents
-    private_recipient: Option<efi::Guid>,
+    private_recipient: Option<patina::BinaryGuid>,
     /// Message length tracked independently to check against comm buffer contents
     private_message_length: usize,
     /// Whether this buffer is enabled and should be used for communication.
@@ -509,8 +406,8 @@ impl CommunicateBuffer {
 
         let header_slice = &self.as_slice()[..Self::MESSAGE_START_OFFSET];
 
-        // SAFETY: Buffer size validated, efi::Guid is repr(C) at offset 0
-        let memory_guid = unsafe { core::ptr::read(header_slice.as_ptr() as *const efi::Guid) };
+        // SAFETY: Buffer size validated, BinaryGuid is repr(transparent) over repr(C) efi::Guid at offset 0
+        let memory_guid = unsafe { core::ptr::read(header_slice.as_ptr() as *const patina::BinaryGuid) };
 
         // SAFETY: Buffer size validated, usize at offset 16 after Guid
         let memory_message_length = unsafe { core::ptr::read(header_slice.as_ptr().add(16) as *const usize) };
@@ -526,8 +423,7 @@ impl CommunicateBuffer {
             }
             None => {
                 // If no recipient is set privately, the memory should contain all zeros for the GUID
-                let zero_guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
-                if memory_guid != zero_guid {
+                if memory_guid != patina::guids::ZERO {
                     log::error!(target: "mm_comm", "Buffer {} unexpected GUID in memory when none set privately", self.id);
                     return Err(CommunicateBufferStatus::InvalidRecipient);
                 }
@@ -589,7 +485,7 @@ impl CommunicateBuffer {
         self.validate_capacity(0)?;
 
         // Update private state
-        let recipient_efi = recipient.to_efi_guid();
+        let recipient_efi: BinaryGuid = recipient.to_efi_guid().into();
         self.private_recipient = Some(recipient_efi);
 
         // Update memory buffer using safe byte operations
@@ -680,7 +576,7 @@ impl CommunicateBuffer {
         self.verify_state_consistency()?;
 
         log::trace!(target: "mm_comm", "Buffer {} header GUID retrieved from private state", self.id);
-        Ok(self.private_recipient.as_ref().map(Guid::from_ref))
+        Ok(self.private_recipient.as_ref().map(Guid::from))
     }
 
     /// Returns the message length from the current communicate buffer.
@@ -971,8 +867,7 @@ mod tests {
         assert_eq!(comm_buffer.get_message_length().unwrap(), message.len());
 
         // Update with new recipient
-        let recipient_guid2 =
-            Guid::from_fields(0x3210FEDC, 0xABCD, 0xABCD, 0x12, 0x23, [0x12, 0x34, 0x56, 0x78, 0x90, 0xAB]);
+        let recipient_guid2 = Guid::try_from_string("3210FEDC-ABCD-ABCD-1223-1234567890AB").unwrap();
         assert!(comm_buffer.set_message_info(recipient_guid2.clone()).is_ok());
         assert_eq!(
             comm_buffer.get_header_guid().unwrap().as_ref().map(|g| g.as_bytes()),
@@ -1197,8 +1092,7 @@ mod tests {
         let returned_guid = header.header_guid();
         assert_eq!(returned_guid.as_bytes(), test_guid.as_bytes());
 
-        let test_guid2 =
-            Guid::from_fields(0xDEADBEEF, 0xCAFE, 0xDCBA, 0x12, 0x34, [0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+        let test_guid2 = Guid::try_from_string("DEADBEEF-CAFE-DCBA-1234-56789ABCDEF0").unwrap();
         let header2 = EfiMmCommunicateHeader::new(test_guid2.clone(), message_length);
 
         let returned_guid2 = header2.header_guid();
@@ -1221,7 +1115,7 @@ mod tests {
 
     #[test]
     fn test_efi_mm_communicate_header_size() {
-        let expected_size = core::mem::size_of::<r_efi::efi::Guid>() + core::mem::size_of::<usize>();
+        let expected_size = core::mem::size_of::<patina::BinaryGuid>() + core::mem::size_of::<usize>();
         assert_eq!(EfiMmCommunicateHeader::size(), expected_size);
 
         let test_guid = Guid::try_from_string("12345678-1234-5678-90AB-CDEF01234567").unwrap();
