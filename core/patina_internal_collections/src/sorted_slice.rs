@@ -6,9 +6,9 @@
 //!
 //! SPDX-License-Identifier: Apache-2.0
 //!
-use core::{fmt::Debug, mem, ops::Deref, slice};
+use core::{fmt::Debug, ops::Deref, slice};
 
-use crate::{Error, SliceKey};
+use crate::{Error, SliceKey, node::align_byte_slice_for};
 
 /// A slice that is always sorted.
 pub struct SortedSlice<'a, T> {
@@ -23,15 +23,19 @@ where
     T: Clone + Copy + SliceKey + Sized,
 {
     /// Creates a new sorted slice with a maximum capacity defined by the provided mutable slice.
+    ///
+    /// The provided byte slice will be aligned to the required alignment of `T`. Any
+    /// leading bytes lost to alignment and any trailing bytes that do not fit a full
+    /// element are not used, so the resulting capacity may be slightly less than
+    /// `slice.len() / size_of::<T>()`.
     pub fn new(slice: &'a mut [u8]) -> SortedSlice<'a, T> {
+        let (aligned_ptr, count) = align_byte_slice_for::<T>(slice);
         Self {
-            // SAFETY: This is reinterpreting a byte slice as a T slice.
-            // 1. The alignment is handled by slice casting rules
-            // 2. The correct number of T elements that fit in the byte slice is calculated
-            // 3. The lifetime 'a ensures the byte slice remains valid for the sorted slice's lifetime
-            slice: unsafe {
-                slice::from_raw_parts_mut::<'a, T>(slice as *mut [u8] as *mut T, slice.len() / mem::size_of::<T>())
-            },
+            // SAFETY: `aligned_ptr` is properly aligned for `T` and `count` elements
+            // fit within the original byte slice. When `count` is 0, the helper returns
+            // a dangling pointer, which is still valid for a zero-length slice. The
+            // lifetime `'a` is preserved from the input.
+            slice: unsafe { slice::from_raw_parts_mut::<'a, T>(aligned_ptr, count) },
             item_count: 0,
         }
     }
@@ -197,13 +201,24 @@ mod tests {
     use super::*;
     extern crate alloc;
     use alloc::vec::Vec;
+    use core::mem;
+
+    /// Reinterpret a typed array as a byte slice. Using a typed array as the
+    /// backing storage guarantees alignment, so `SortedSlice::new` does not
+    /// lose capacity to alignment padding.
+    fn as_bytes<T>(s: &mut [T]) -> &mut [u8] {
+        // SAFETY: `T` has stricter or equal alignment than `u8`, and the
+        // resulting byte length matches the array's exact byte size.
+        unsafe { slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u8, mem::size_of_val(s)) }
+    }
 
     #[test]
     fn test_init_state_of_new_sorted_slice() {
         const MEM_SIZE: usize = 4096;
-        let mut mem = [0; MEM_SIZE];
-        let mem_ptr = mem.as_ptr();
-        let ss = SortedSlice::<'_, u32>::new(&mut mem);
+        let mut mem = [0u32; MEM_SIZE / mem::size_of::<u32>()];
+        let mem_bytes = as_bytes(&mut mem);
+        let mem_ptr = mem_bytes.as_ptr();
+        let ss = SortedSlice::<'_, u32>::new(mem_bytes);
 
         assert_eq!(0, ss.item_count);
         assert_eq!(mem_ptr, ss.slice.as_ptr() as *const u8);
@@ -214,8 +229,8 @@ mod tests {
 
     #[test]
     fn test_add_in_sorted_slice() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::<'_, usize>::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::<'_, usize>::new(as_bytes(&mut mem));
 
         for e in [1, 4, 3, 2, 5, 8, 0, 6, 7] {
             ss.add(e).unwrap();
@@ -231,8 +246,8 @@ mod tests {
 
     #[test]
     fn test_add_contiguous_slice_in_sorted_array() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::<'_, usize>::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::<'_, usize>::new(as_bytes(&mut mem));
 
         assert_eq!(Err(Error::NotSorted), ss.add_contiguous_slice(&[2, 1]));
         assert_eq!(0, ss.len());
@@ -262,8 +277,8 @@ mod tests {
 
     #[test]
     fn test_remove_in_sorted_array() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::new(as_bytes(&mut mem));
 
         ss.add_contiguous_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).unwrap();
 
@@ -285,8 +300,8 @@ mod tests {
 
     #[test]
     fn test_iter_sorted_slice() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::new(as_bytes(&mut mem));
 
         let items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         ss.add_contiguous_slice(&items).unwrap();
@@ -295,8 +310,8 @@ mod tests {
 
     #[test]
     fn test_search_functionality() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::new(as_bytes(&mut mem));
 
         let items = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
         ss.add_contiguous_slice(&items).unwrap();
@@ -312,8 +327,8 @@ mod tests {
 
     #[test]
     fn test_iteration_ability() {
-        let mut mem = [0; 10 * mem::size_of::<usize>()];
-        let mut ss = SortedSlice::new(&mut mem);
+        let mut mem = [0usize; 10];
+        let mut ss = SortedSlice::new(as_bytes(&mut mem));
 
         let items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         ss.add_contiguous_slice(&items).unwrap();

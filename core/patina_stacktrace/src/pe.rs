@@ -170,8 +170,9 @@ impl PE<'_> {
 
         // Check the CodeView signature.
         // SAFETY: `debug_data` is within the caller-provided PE image and points to
-        // the beginning of the CodeView structure.
-        let codeview_signature = unsafe { *(debug_data as *const u32) };
+        // the beginning of the CodeView structure. We use `read_unaligned` because the
+        // debug data RVA may not be aligned to a 4-byte boundary.
+        let codeview_signature = unsafe { core::ptr::read_unaligned(debug_data as *const u32) };
 
         // Determine the file name offset based on the CodeView format
         let file_name_offset = match codeview_signature {

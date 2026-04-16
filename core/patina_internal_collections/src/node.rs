@@ -10,6 +10,28 @@ use core::{cell::Cell, mem, mem::MaybeUninit, ptr::NonNull, slice};
 
 use crate::{Error, Result, SliceKey};
 
+/// Aligns a mutable byte slice for use as a `T` slice, returning the aligned
+/// pointer and the number of `T` elements that fit.
+///
+/// Returns `(NonNull::<T>::dangling().as_ptr(), 0)` if the slice is too small
+/// or cannot be aligned, so the pointer is always safe to pass to
+/// [`slice::from_raw_parts_mut`] alongside the returned count.
+pub(crate) fn align_byte_slice_for<T>(slice: &mut [u8]) -> (*mut T, usize) {
+    let ptr = slice.as_mut_ptr();
+    let offset = ptr.align_offset(mem::align_of::<T>());
+    if offset > slice.len() {
+        return (NonNull::<T>::dangling().as_ptr(), 0);
+    }
+    let usable = slice.len() - offset;
+    let count = usable / mem::size_of::<T>();
+    if count == 0 {
+        return (NonNull::<T>::dangling().as_ptr(), 0);
+    }
+    // SAFETY: `offset <= slice.len()`, so `ptr.add(offset)` is within the allocation.
+    let aligned = unsafe { ptr.add(offset) as *mut T };
+    (aligned, count)
+}
+
 /// The color RED of a node in a red-black tree.
 pub const RED: bool = false;
 /// The color BLACK of a node in a red-black tree.
@@ -50,15 +72,20 @@ where
     }
 
     /// Create a new storage container with a slice of memory.
+    ///
+    /// The provided byte slice will be aligned to the required alignment of `Node<D>`.
+    /// Any leading bytes lost to alignment and any trailing bytes that do not fit a full
+    /// node are not used. The resulting capacity may therefore be slightly less than
+    /// `slice.len() / node_size::<D>()`.
     pub fn with_capacity(slice: &'a mut [u8]) -> Storage<'a, D> {
-        // SAFETY: This is reinterpreting a byte slice as a MaybeUninit<Node<D>> slice.
-        // Using MaybeUninit explicitly represents uninitialized memory.
-        let uninit_buffer = unsafe {
-            slice::from_raw_parts_mut::<'a, MaybeUninit<Node<D>>>(
-                slice as *mut [u8] as *mut MaybeUninit<Node<D>>,
-                slice.len() / mem::size_of::<Node<D>>(),
-            )
-        };
+        let (aligned_ptr, count) = align_byte_slice_for::<MaybeUninit<Node<D>>>(slice);
+        if count == 0 {
+            return Self::new();
+        }
+
+        // SAFETY: `aligned_ptr` is within the bounds of `slice`, is properly aligned
+        // for MaybeUninit<Node<D>>, and `count` elements fit in the remaining space.
+        let uninit_buffer = unsafe { slice::from_raw_parts_mut::<'a, MaybeUninit<Node<D>>>(aligned_ptr, count) };
 
         // Initialize nodes with uninitialized data fields
         for elem in uninit_buffer.iter_mut() {
@@ -204,19 +231,10 @@ where
     ///
     /// O(n)
     pub fn expand(&mut self, slice: &'a mut [u8]) {
-        // SAFETY: This is reinterpreting a byte slice as a MaybeUninit<Node<D>> slice.
-        // Using MaybeUninit explicitly represents uninitialized memory and avoids undefined
-        // behavior from creating references to uninitialized Node<D>.
-        // 1. The alignment is handled by slice casting rules
-        // 2. The correct number of Node<D> elements that fit in the byte slice is calculated
-        // 3. The lifetime 'a ensures the byte slice remains valid for the storage's lifetime
-        // 4. MaybeUninit<T> has the same size and alignment as T
-        let uninit_buffer = unsafe {
-            slice::from_raw_parts_mut::<'a, MaybeUninit<Node<D>>>(
-                slice as *mut [u8] as *mut MaybeUninit<Node<D>>,
-                slice.len() / mem::size_of::<Node<D>>(),
-            )
-        };
+        let (aligned_ptr, count) = align_byte_slice_for::<MaybeUninit<Node<D>>>(slice);
+        // SAFETY: `aligned_ptr` is within the bounds of `slice`, is properly aligned
+        // for MaybeUninit<Node<D>>, and `count` elements fit in the remaining space.
+        let uninit_buffer = unsafe { slice::from_raw_parts_mut::<'a, MaybeUninit<Node<D>>>(aligned_ptr, count) };
 
         assert!(uninit_buffer.len() >= self.capacity());
 
